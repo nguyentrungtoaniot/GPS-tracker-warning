@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ Thống Theo Dõi GPS Thời Gian Thực</title>
+    
+    <!-- Thư viện bản đồ Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body, html { width: 100%; height: 100%; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+        #map { width: 100%; height: 100vh; }
+        
+        .info-box {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 16px 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            min-width: 260px;
+            backdrop-filter: blur(5px);
+        }
+        .info-box h3 { 
+            margin-bottom: 10px; 
+            color: #1a73e8; 
+            font-size: 16px; 
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .info-box p { 
+            font-size: 13.5px; 
+            color: #444; 
+            margin: 6px 0; 
+            display: flex;
+            justify-content: space-between;
+        }
+        .info-box span.val {
+            font-weight: 600;
+            color: #111;
+        }
+        .btn-clear {
+            margin-top: 10px;
+            width: 100%;
+            background: #1a73e8;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+        .btn-clear:hover {
+            background: #1557b0;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="info-box">
+        <h3>📍 Trạng Thái GPS</h3>
+        <p>Vĩ độ (Lat): <span id="lat-val" class="val">--</span></p>
+        <p>Kinh độ (Lng): <span id="lng-val" class="val">--</span></p>
+        <p>Cập nhật: <span id="time-val" class="val">--</span></p>
+        <button class="btn-clear" onclick="clearPath()">Xóa Đường Đi Đã Vẽ</button>
+    </div>
+
+    <div id="map"></div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <script>
+        // -----------------------------------------------------------------
+        // URL DATABASE CỦA BẠN
+        // -----------------------------------------------------------------
+        const FIREBASE_URL = "https://map-1dc88-default-rtdb.firebaseio.com/gps.json";
+
+        // 1. Bản đồ Đường phố Esri World Street Map (Miễn phí, Không API Key)
+        const esriStreet = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+            maxZoom: 19,
+            attribution: 'Tiles &copy; Esri'
+        });
+
+        // 2. Bản đồ Vệ tinh Esri World Imagery (Miễn phí, Không API Key)
+        const esriSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            maxZoom: 19,
+            attribution: 'Tiles &copy; Esri'
+        });
+
+        // 3. Lớp tên đường phủ lên Bản đồ Vệ tinh (Esri Reference)
+        const esriRef = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', {
+            maxZoom: 19
+        });
+        
+        // Nhóm lớp Vệ tinh + Tên đường
+        const satelliteCombined = L.layerGroup([esriSat, esriRef]);
+
+        // Khởi tạo bản đồ chính
+        const map = L.map('map', {
+            center: [20.149020, 105.924078],
+            zoom: 16,
+            layers: [esriStreet] // Mặc định dùng Bản đồ đường phố Esri
+        });
+
+        // Nút chuyển đổi chế độ bản đồ ở góc trên bên trái
+        const baseMaps = {
+            "Bản đồ Đường phố": esriStreet,
+            "Bản đồ Vệ tinh": satelliteCombined
+        };
+        L.control.layers(baseMaps, null, { position: 'topleft' }).addTo(map);
+
+        let marker = null;
+        let polyline = L.polyline([], { color: '#007aff', weight: 5, opacity: 0.8 }).addTo(map);
+        let pathHistory = [];
+        let isFirstZoom = true;
+
+        // Hàm lấy dữ liệu GPS từ Firebase
+        async function fetchGPSData() {
+            try {
+                const response = await fetch(FIREBASE_URL);
+                const data = await response.json();
+
+                if (data && data.lat !== undefined && data.lng !== undefined) {
+                    const lat = data.lat;
+                    const lng = data.lng;
+
+                    // Cập nhật thông số lên bảng giao diện
+                    document.getElementById('lat-val').innerText = lat.toFixed(6);
+                    document.getElementById('lng-val').innerText = lng.toFixed(6);
+                    document.getElementById('time-val').innerText = new Date().toLocaleTimeString('vi-VN');
+
+                    const newLatLng = [lat, lng];
+
+                    // Lưu lịch sử tọa độ và vẽ đường đi
+                    pathHistory.push(newLatLng);
+                    polyline.setLatLngs(pathHistory);
+
+                    if (!marker) {
+                        // Tạo ghim Marker vị trí
+                        marker = L.marker(newLatLng).addTo(map)
+                            .bindPopup("Vị trí thiết bị GPS").openPopup();
+                    } else {
+                        // Cập nhật vị trí Marker
+                        marker.setLatLng(newLatLng);
+                    }
+
+                    // Tự động nhảy bản đồ tới vị trí thiết bị ở lần mở đầu tiên
+                    if (isFirstZoom) {
+                        map.setView(newLatLng, 17);
+                        isFirstZoom = false;
+                    }
+                }
+            } catch (error) {
+                console.error("Lỗi kết nối Firebase:", error);
+            }
+        }
+
+        // Hàm xóa đường vết đã đi
+        function clearPath() {
+            pathHistory = [];
+            polyline.setLatLngs([]);
+        }
+
+        // Tự động tải lại dữ liệu từ Firebase mỗi 2 giây
+        setInterval(fetchGPSData, 2000);
+        fetchGPSData();
+    </script>
+</body>
+</html>
