@@ -3,175 +3,239 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hệ Thống Theo Dõi GPS Thời Gian Thực</title>
-    
-    <!-- Thư viện bản đồ Leaflet CSS -->
+    <title>Hệ Thống Giám Sát Cảnh Báo Lũ Lụt & Cứu Hộ</title>
+
+    <!-- Leaflet CSS (Bản đồ miễn phí) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     
+    <!-- Google Fonts & FontAwesome Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body, html { width: 100%; height: 100%; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
-        #map { width: 100%; height: 100vh; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Roboto', sans-serif; }
+        body { background-color: #f4f7f6; color: #333; }
         
-        .info-box {
-            position: absolute;
-            top: 15px;
-            right: 15px;
-            z-index: 1000;
-            background: rgba(255, 255, 255, 0.95);
-            padding: 16px 20px;
-            border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-            min-width: 260px;
-            backdrop-filter: blur(5px);
+        header {
+            background: linear-gradient(135deg, #0052D4, #4364F7, #6FB1FC);
+            color: white; padding: 15px 20px; text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
-        .info-box h3 { 
-            margin-bottom: 10px; 
-            color: #1a73e8; 
-            font-size: 16px; 
-            display: flex;
-            align-items: center;
-            gap: 6px;
+        header h1 { font-size: 1.5rem; margin-bottom: 5px; }
+
+        .container {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 20px; padding: 20px; max-width: 1400px; margin: 0 auto;
         }
-        .info-box p { 
-            font-size: 13.5px; 
-            color: #444; 
-            margin: 6px 0; 
-            display: flex;
-            justify-content: space-between;
+
+        @media (max-width: 900px) {
+            .container { grid-template-columns: 1fr; }
         }
-        .info-box span.val {
-            font-weight: 600;
-            color: #111;
+
+        .card-panel { display: flex; flex-direction: column; gap: 15px; }
+
+        .card {
+            background: white; border-radius: 12px; padding: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05); transition: transform 0.2s;
         }
-        .btn-clear {
-            margin-top: 10px;
-            width: 100%;
-            background: #1a73e8;
-            color: white;
-            border: none;
-            padding: 8px 12px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 12px;
-            font-weight: 600;
-            transition: background 0.2s;
+
+        .card-title {
+            font-size: 0.9rem; color: #666; text-transform: uppercase;
+            letter-spacing: 1px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;
         }
-        .btn-clear:hover {
-            background: #1557b0;
+
+        .status-box {
+            padding: 15px; border-radius: 8px; font-weight: bold;
+            text-align: center; font-size: 1.2rem; transition: all 0.3s;
         }
+
+        .status-normal { background-color: #e8f5e9; color: #2e7d32; border: 2px solid #a5d6a7; }
+        .status-warning { background-color: #fff3e0; color: #ef6c00; border: 2px solid #ffcc80; }
+        .status-alarm { background-color: #ffebee; color: #c62828; border: 2px solid #ef9a9a; animation: pulse 1s infinite; }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+            100% { transform: scale(1); }
+        }
+
+        .val-display { font-size: 2.2rem; font-weight: bold; color: #1a237e; }
+
+        #map { height: 550px; width: 100%; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        
+        .info-row { display: flex; justify-content: space-between; margin-top: 8px; font-size: 0.95rem; }
+        .info-row span { color: #555; }
+        .info-row strong { color: #111; }
     </style>
 </head>
 <body>
 
-    <div class="info-box">
-        <h3>📍 Trạng Thái GPS</h3>
-        <p>Vĩ độ (Lat): <span id="lat-val" class="val">--</span></p>
-        <p>Kinh độ (Lng): <span id="lng-val" class="val">--</span></p>
-        <p>Cập nhật: <span id="time-val" class="val">--</span></p>
-        <button class="btn-clear" onclick="clearPath()">Xóa Đường Đi Đã Vẽ</button>
+    <header>
+        <h1><i class="fa-solid fa-house-flood-water"></i> HỆ THỐNG GIÁM SÁT CẢNH BÁO LŨ LỤT & CỨU HỘ</h1>
+        <p>Cập nhật thời gian thực qua LoRa & Firebase</p>
+    </header>
+
+    <div class="container">
+        <!-- Bảng thông số -->
+        <div class="card-panel">
+            
+            <!-- Trạng thái kết nối LoRa -->
+            <div class="card">
+                <div class="card-title"><i class="fa-solid fa-wifi"></i> Trạng thái trạm thu</div>
+                <div class="info-row">
+                    <span>Kết nối LoRa:</span>
+                    <strong id="connection-status" style="color: #d32f2f;">ĐANG TẢI...</strong>
+                </div>
+            </div>
+
+            <!-- Cảnh báo hệ thống -->
+            <div class="card">
+                <div class="card-title"><i class="fa-solid fa-triangle-exclamation"></i> Trạng thái hệ thống</div>
+                <div id="status-card" class="status-box status-normal">
+                    <span id="status-text">AN TOÀN</span>
+                </div>
+            </div>
+
+            <!-- Mực nước -->
+            <div class="card">
+                <div class="card-title"><i class="fa-solid fa-water"></i> Mực nước hiện tại</div>
+                <div class="val-display" id="water-level">MỨC --</div>
+                <p style="font-size: 0.85rem; color: #777; margin-top: 5px;">Mức 0: An toàn | Mức 3: Báo động lũ</p>
+            </div>
+
+            <!-- Tọa độ GPS -->
+            <div class="card">
+                <div class="card-title"><i class="fa-solid fa-location-dot"></i> Tọa độ GPS Cứu hộ</div>
+                <div class="info-row">
+                    <span>Vĩ độ (Lat):</span>
+                    <strong id="lat-val">--.------</strong>
+                </div>
+                <div class="info-row">
+                    <span>Kinh độ (Lng):</span>
+                    <strong id="lng-val">---.------</strong>
+                </div>
+                <div class="info-row">
+                    <span>Trạng thái GPS:</span>
+                    <strong id="gps-status">Chưa chốt</strong>
+                </div>
+                <div style="margin-top: 15px;">
+                    <a id="gmaps-link" href="#" target="_blank" style="display: block; text-align: center; background: #4285F4; color: white; padding: 10px; border-radius: 6px; text-decoration: none; font-weight: bold;">
+                        <i class="fa-solid fa-map-location-dot"></i> Mở trên Google Maps
+                    </a>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Bản đồ trực tuyến -->
+        <div id="map"></div>
     </div>
 
-    <div id="map"></div>
+    <!-- Firebase JS SDK (Phiên bản v8 tương thích dễ dùng) -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
-    <!-- Leaflet JS -->
+    <!-- Leaflet JS (Bản đồ) -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    
+
     <script>
-        // -----------------------------------------------------------------
-        // URL DATABASE CỦA BẠN
-        // -----------------------------------------------------------------
-        const FIREBASE_URL = "https://map-1dc88-default-rtdb.firebaseio.com/gps.json";
-
-        // 1. Bản đồ Đường phố Esri World Street Map (Miễn phí, Không API Key)
-        const esriStreet = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
-            maxZoom: 19,
-            attribution: 'Tiles &copy; Esri'
-        });
-
-        // 2. Bản đồ Vệ tinh Esri World Imagery (Miễn phí, Không API Key)
-        const esriSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-            maxZoom: 19,
-            attribution: 'Tiles &copy; Esri'
-        });
-
-        // 3. Lớp tên đường phủ lên Bản đồ Vệ tinh (Esri Reference)
-        const esriRef = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', {
-            maxZoom: 19
-        });
-        
-        // Nhóm lớp Vệ tinh + Tên đường
-        const satelliteCombined = L.layerGroup([esriSat, esriRef]);
-
-        // Khởi tạo bản đồ chính
-        const map = L.map('map', {
-            center: [20.149020, 105.924078],
-            zoom: 16,
-            layers: [esriStreet] // Mặc định dùng Bản đồ đường phố Esri
-        });
-
-        // Nút chuyển đổi chế độ bản đồ ở góc trên bên trái
-        const baseMaps = {
-            "Bản đồ Đường phố": esriStreet,
-            "Bản đồ Vệ tinh": satelliteCombined
+        // -------------------------------------------------------------
+        // 1. CẤU HÌNH FIREBASE REALTIME DATABASE CỦA ANH
+        // -------------------------------------------------------------
+        const firebaseConfig = {
+            databaseURL: "https://map-1dc88-default-rtdb.firebaseio.com/"
         };
-        L.control.layers(baseMaps, null, { position: 'topleft' }).addTo(map);
+        
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
 
-        let marker = null;
-        let polyline = L.polyline([], { color: '#007aff', weight: 5, opacity: 0.8 }).addTo(map);
-        let pathHistory = [];
-        let isFirstZoom = true;
+        // -------------------------------------------------------------
+        // 2. KHỞI TẠO BẢN ĐỒ LEAFLET
+        // -------------------------------------------------------------
+        // Khởi tạo bản đồ mặc định tại Việt Nam
+        const map = L.map('map').setView([20.2506, 105.9744], 13);
 
-        // Hàm lấy dữ liệu GPS từ Firebase
-        async function fetchGPSData() {
-            try {
-                const response = await fetch(FIREBASE_URL);
-                const data = await response.json();
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
 
-                if (data && data.lat !== undefined && data.lng !== undefined) {
-                    const lat = data.lat;
-                    const lng = data.lng;
+        // Marker vị trí thiết bị
+        let marker = L.marker([20.2506, 105.9744]).addTo(map)
+            .bindPopup('<b>Trạm phát LoRa</b><br>Đang tải dữ liệu...')
+            .openPopup();
 
-                    // Cập nhật thông số lên bảng giao diện
-                    document.getElementById('lat-val').innerText = lat.toFixed(6);
-                    document.getElementById('lng-val').innerText = lng.toFixed(6);
-                    document.getElementById('time-val').innerText = new Date().toLocaleTimeString('vi-VN');
+        // -------------------------------------------------------------
+        // 3. LẮNG NGHE DỮ LIỆU THỜI GIAN THỰC TỪ FIREBASE
+        // -------------------------------------------------------------
+        
+        // Đọc dữ liệu từ Node /Monitoring
+        database.ref('/Monitoring').on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                const waterLvl = data.waterLevel !== undefined ? data.waterLevel : 0;
+                const sosState = data.sosState !== undefined ? data.sosState : 0;
+                const lat = data.latitude || 0;
+                const lng = data.longitude || 0;
+                const gpsValid = data.gpsValid || false;
 
-                    const newLatLng = [lat, lng];
+                // Cập nhật Mực nước
+                document.getElementById('water-level').innerText = "MỨC " + waterLvl;
 
-                    // Lưu lịch sử tọa độ và vẽ đường đi
-                    pathHistory.push(newLatLng);
-                    polyline.setLatLngs(pathHistory);
+                // Cập nhật Thẻ Trạng thái
+                const statusCard = document.getElementById('status-card');
+                const statusText = document.getElementById('status-text');
 
-                    if (!marker) {
-                        // Tạo ghim Marker vị trí
-                        marker = L.marker(newLatLng).addTo(map)
-                            .bindPopup("Vị trí thiết bị GPS").openPopup();
-                    } else {
-                        // Cập nhật vị trí Marker
-                        marker.setLatLng(newLatLng);
-                    }
-
-                    // Tự động nhảy bản đồ tới vị trí thiết bị ở lần mở đầu tiên
-                    if (isFirstZoom) {
-                        map.setView(newLatLng, 17);
-                        isFirstZoom = false;
-                    }
+                if (sosState === 1) {
+                    statusCard.className = "status-box status-alarm";
+                    statusText.innerHTML = '<i class="fa-solid fa-bell"></i> CẤP CỨU KHẨN CẤP (SOS!)';
+                } else if (waterLvl === 3) {
+                    statusCard.className = "status-box status-warning";
+                    statusText.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> CẢNH BÁO LŨ MỨC 3';
+                } else {
+                    statusCard.className = "status-box status-normal";
+                    statusText.innerHTML = '<i class="fa-solid fa-shield-check"></i> AN TOÀN';
                 }
-            } catch (error) {
-                console.error("Lỗi kết nối Firebase:", error);
+
+                // Cập nhật GPS
+                document.getElementById('lat-val').innerText = lat.toFixed(6);
+                document.getElementById('lng-val').innerText = lng.toFixed(6);
+                
+                if (gpsValid && lat !== 0 && lng !== 0) {
+                    document.getElementById('gps-status').innerText = "Đã định vị [OK]";
+                    document.getElementById('gps-status').style.color = "green";
+                    
+                    // Cập nhật Link Google Maps
+                    document.getElementById('gmaps-link').href = `https://maps.google.com/?q=${lat},${lng}`;
+
+                    // Cập nhật vị trí Marker trên bản đồ
+                    const newLatLng = new L.LatLng(lat, lng);
+                    marker.setLatLng(newLatLng);
+                    map.panTo(newLatLng);
+
+                    let popupContent = `<b>Trạm Cảnh Báo Lũ</b><br>Mực nước: Mức ${waterLvl}`;
+                    if(sosState === 1) popupContent += `<br><span style="color:red; font-weight:bold;">[ĐANG YÊU CẦU CỨU HỘ!]</span>`;
+                    marker.setPopupContent(popupContent);
+                } else {
+                    document.getElementById('gps-status').innerText = "Đang tìm vệ tinh...";
+                    document.getElementById('gps-status').style.color = "orange";
+                }
             }
-        }
+        });
 
-        // Hàm xóa đường vết đã đi
-        function clearPath() {
-            pathHistory = [];
-            polyline.setLatLngs([]);
-        }
-
-        // Tự động tải lại dữ liệu từ Firebase mỗi 2 giây
-        setInterval(fetchGPSData, 2000);
-        fetchGPSData();
+        // Đọc trạng thái kết nối từ Node /DeviceStatus/connection
+        database.ref('/DeviceStatus/connection').on('value', (snapshot) => {
+            const conn = snapshot.val();
+            const connElem = document.getElementById('connection-status');
+            if (conn === "CONNECT") {
+                connElem.innerText = "ĐÃ KẾT NỐI (ONLINE)";
+                connElem.style.color = "#2e7d32";
+            } else {
+                connElem.innerText = "MẤT KẾT NỐI (OFFLINE)";
+                connElem.style.color = "#c62828";
+            }
+        });
     </script>
 </body>
 </html>
